@@ -5,24 +5,24 @@ from collections import Counter
 
 st.set_page_config(page_title="Elective Selection", layout="centered")
 
-# --- CONFIGURATION ---
-CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSYZSMYUGqFLiPNW8q4pkUnqDMAln0GcMw0JOQEyr2Dl9-wdfBOIr_twyR5GEMSUir1GqeeHRnHgGUo/pub?output=csv"
+# --- USE YOUR SHARED GOOGLE SHEET (READ-ONLY MODE) ---
+CSV_URL = "https://docs.google.com/spreadsheets/d/1DsHjWx6W9v7IbTYoBECKqymUeQOhK3QsCD3wEYnPA4w/export?format=csv"
 MAX_CAPACITY = 60
 
-# --- READ DATA FROM GOOGLE SHEET (READ-ONLY) ---
+# --- READ FROM GOOGLE SHEET ---
 try:
     df = pd.read_csv(CSV_URL)
     if df.empty:
         st.warning("✅ Connected to Google Sheet, but no data found.")
     else:
         st.success("✅ Data successfully read from Google Sheet!")
-        st.dataframe(df.head())  # Show preview of data (for debugging)
+        st.dataframe(df.head())  # Preview
 except Exception as e:
     st.error("❌ Error reading data from the online sheet.")
     st.exception(e)
     st.stop()
 
-# --- LIST OF ELECTIVES ---
+# --- ELECTIVES LIST ---
 electives = [
     "Theory of Constraints",
     "Essentials of Internet and Web Technologies",
@@ -41,11 +41,11 @@ electives = [
     "Sustainable Finance and Responsible Investment"
 ]
 
-# --- COUNT CURRENT ELECTIVE SELECTIONS ---
+# --- ELECTIVE COUNT FROM SHEET ---
 count_list = df[["Elective 1", "Elective 2"]].stack().dropna().tolist()
 counts = Counter(count_list)
 
-# --- ELECTIVES WITH SEATS AVAILABLE ---
+# --- DISPLAY ELECTIVES WITH SEATS LEFT ---
 elective_display = []
 elective_map = {}
 
@@ -67,7 +67,7 @@ with st.form(key="elective_form"):
     selected_display = st.multiselect("Select exactly 2 electives:", options=elective_display)
     submit = st.form_submit_button(label="Submit")
 
-    # --- FIELD VALIDATIONS ---
+    # --- VALIDATION ---
     name_valid = re.fullmatch(r"[A-Za-z\s]+", name.strip())
     prn_valid = re.fullmatch(r"\d{9,10}", prn.strip())
     email_valid = re.fullmatch(r"[^@ \t\r\n]+@[^@ \t\r\n]+\.[^@ \t\r\n]+", email.strip())
@@ -89,4 +89,4 @@ with st.form(key="elective_form"):
         else:
             st.success("✅ Your electives have been recorded successfully!")
             st.info("ℹ️ However, this is a read-only version. Your submission has not been saved.")
-            st.markdown("Please contact the admin to enable data submission to the sheet.")
+            st.markdown("📩 Please contact the admin to enable write access to the sheet.")
