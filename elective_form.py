@@ -1,12 +1,18 @@
 import streamlit as st
 import pandas as pd
-import os
 import re
+from collections import Counter
 
 st.set_page_config(page_title="Elective Selection", layout="centered")
 
-# CSV file to store responses
-CSV_FILE = "elective_responses.csv"
+# Read from public Google Sheet (read-only CSV)
+CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSYZSMYUGqFLiPNW8q4pkUnqDMAln0GcMw0JOQEyr2Dl9-wdfBOIr_twyR5GEMSUir1GqeeHRnHgGUo/pub?output=csv"
+try:
+    df = pd.read_csv(CSV_URL)
+except Exception as e:
+    st.error("Error reading data from the online sheet.")
+    st.stop()
+
 MAX_CAPACITY = 60
 
 # List of electives
@@ -28,25 +34,16 @@ electives = [
     "Sustainable Finance and Responsible Investment"
 ]
 
-# Load or initialize data
-if os.path.exists(CSV_FILE):
-    try:
-        df = pd.read_csv(CSV_FILE)
-    except pd.errors.EmptyDataError:
-        df = pd.DataFrame(columns=["Name", "PRN", "Email", "Elective 1", "Elective 2"])
-else:
-    df = pd.DataFrame(columns=["Name", "PRN", "Email", "Elective 1", "Elective 2"])
-
 # Count how many students have chosen each elective
-counts = df[["Elective 1", "Elective 2"]].stack().value_counts().to_dict()
+count_list = df[["Elective 1", "Elective 2"]].stack().dropna().tolist()
+counts = Counter(count_list)
 
 # Filter electives with available seats
 elective_display = []
 elective_map = {}
 
 for e in electives:
-    count = counts.get(e, 0)
-    remaining = MAX_CAPACITY - count
+    remaining = MAX_CAPACITY - counts.get(e, 0)
     if remaining > 0:
         label = f"{e} (Seats Left: {remaining}/60)"
         elective_display.append(label)
@@ -65,8 +62,10 @@ with st.form(key="elective_form"):
 
     # Regex for validations
     name_valid = re.fullmatch(r"[A-Za-z\s]+", name.strip())
-    prn_valid = re.fullmatch(r"\d{9,10}", prn.strip())  # adjust digit length as needed
+    prn_valid = re.fullmatch(r"\d{9,10}", prn.strip())
     email_valid = re.fullmatch(r"[^@ \t\r\n]+@[^@ \t\r\n]+\.[^@ \t\r\n]+", email.strip())
+
+    existing_prns = df["PRN"].astype(str).values
 
     if submit:
         if not name.strip() or not prn.strip() or not email.strip():
@@ -79,12 +78,9 @@ with st.form(key="elective_form"):
             st.error("❌ Enter a valid email address.")
         elif len(selected_display) != 2:
             st.error("❌ Please select exactly 2 electives.")
-        elif prn in df["PRN"].astype(str).values:
+        elif prn.strip() in existing_prns:
             st.warning("⚠️ This PRN has already submitted a response.")
         else:
-            selected_actual = [elective_map[s] for s in selected_display]
-            new_row = pd.DataFrame([[name.strip(), prn.strip(), email.strip(), selected_actual[0], selected_actual[1]]],
-                                   columns=["Name", "PRN", "Email", "Elective 1", "Elective 2"])
-            df = pd.concat([df, new_row], ignore_index=True)
-            df.to_csv(CSV_FILE, index=False)
             st.success("✅ Your electives have been recorded successfully!")
+            st.info("However, since this sheet is read-only, your submission is not being stored.")
+            st.write("📩 Please contact the admin to enable full submission functionality.")
