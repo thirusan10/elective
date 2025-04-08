@@ -4,18 +4,17 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# ------------------- Streamlit Setup -------------------
-st.set_page_config(page_title="Elective Selection Form", layout="centered")
+st.set_page_config(page_title="Elective Selection", layout="centered")
 st.title("🎓 Elective Selection Form")
 st.write("Please choose exactly 2 electives. Each elective has a cap of 60 students.")
 
-# ------------------- Google Sheets Setup -------------------
+# ------------------- Google Sheets Setup ------------------- #
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(creds)
-sheet = client.open("Student_Responses").sheet1  # Replace with your actual sheet name
+sheet = client.open("Student_Responses").sheet1  # Replace with your actual Sheet name
 
-# ------------------- Elective Configuration -------------------
+# ------------------- Elective Capacity ------------------- #
 MAX_CAPACITY = 60
 elective_remaining_seats = {
     "Theory of Constraints": 37,
@@ -26,20 +25,19 @@ elective_remaining_seats = {
     "Mergers and Acquisitions": 25
 }
 
-# ------------------- Read Data from Sheet -------------------
+# ------------------- Read Existing Sheet Data ------------------- #
 records = sheet.get_all_records()
 df = pd.DataFrame(records)
 
-# ------------------- Ensure Required Columns Exist -------------------
 required_columns = ["Elective 1", "Elective 2", "PRN"]
 for col in required_columns:
     if col not in df.columns:
-        df[col] = ""  # Add missing column if not present
+        df[col] = ""
 
-# ------------------- Count Current Elective Selections -------------------
+# ------------------- Count Elective Selections ------------------- #
 counts_from_submissions = df[["Elective 1", "Elective 2"]].stack().value_counts().to_dict()
 
-# ------------------- Prepare Display Electives -------------------
+# ------------------- Prepare Elective Display ------------------- #
 elective_display = []
 elective_map = {}
 
@@ -51,7 +49,7 @@ for elective, total in elective_remaining_seats.items():
         elective_display.append(label)
         elective_map[label] = elective
 
-# ------------------- Form UI -------------------
+# ------------------- Streamlit Form ------------------- #
 with st.form("elective_form"):
     name = st.text_input("Full Name *")
     prn = st.text_input("PRN Number *")
@@ -59,7 +57,6 @@ with st.form("elective_form"):
     selected_display = st.multiselect("Select exactly 2 electives:", options=elective_display)
     submit = st.form_submit_button("Submit")
 
-    # ------------------- Validations -------------------
     name_valid = re.fullmatch(r"[A-Za-z\s]+", name.strip())
     prn_valid = re.fullmatch(r"\d{9,10}", prn.strip())
     email_valid = re.fullmatch(r"[^@ \t\r\n]+@[^@ \t\r\n]+\.[^@ \t\r\n]+", email.strip())
@@ -79,9 +76,8 @@ with st.form("elective_form"):
             st.warning("⚠️ This PRN has already submitted a response.")
         else:
             selected_actual = [elective_map[s] for s in selected_display]
-
-            # Final overbooking check
             latest_counts = df[["Elective 1", "Elective 2"]].stack().value_counts().to_dict()
+
             overbooked = False
             for elective in selected_actual:
                 if latest_counts.get(elective, 0) >= elective_remaining_seats[elective]:
