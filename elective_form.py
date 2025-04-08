@@ -1,92 +1,100 @@
 import streamlit as st
-import pandas as pd
 import re
-from collections import Counter
+import pandas as pd
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-st.set_page_config(page_title="Elective Selection", layout="centered")
+# ------------------- Streamlit Setup -------------------
+st.set_page_config(page_title="Elective Selection Form", layout="centered")
+st.title("🎓 Elective Selection Form")
+st.write("Please choose exactly 2 electives. Each elective has a cap of 60 students.")
 
-# --- USE YOUR SHARED GOOGLE SHEET (READ-ONLY MODE) ---
-CSV_URL = "https://docs.google.com/spreadsheets/d/1DsHjWx6W9v7IbTYoBECKqymUeQOhK3QsCD3wEYnPA4w/export?format=csv"
+# ------------------- Google Sheets Setup -------------------
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+client = gspread.authorize(creds)
+sheet = client.open("Student_Responses").sheet1  # Replace with your actual sheet name
+
+# ------------------- Elective Configuration -------------------
 MAX_CAPACITY = 60
+elective_remaining_seats = {
+    "Theory of Constraints": 37,
+    "International Marketing": 19,
+    "Financial Modeling": 5,
+    "Entrepreneurship": 28,
+    "Venture and Private Equity Funding": 44,
+    "Mergers and Acquisitions": 25
+}
 
-# --- READ FROM GOOGLE SHEET ---
-try:
-    df = pd.read_csv(CSV_URL)
-    if df.empty:
-        st.warning("✅ Connected to Google Sheet, but no data found.")
-    else:
-        st.success("✅ Data successfully read from Google Sheet!")
-        st.dataframe(df.head())  # Preview
-except Exception as e:
-    st.error("❌ Error reading data from the online sheet.")
-    st.exception(e)
-    st.stop()
+# ------------------- Read Data from Sheet -------------------
+records = sheet.get_all_records()
+df = pd.DataFrame(records)
 
-# --- ELECTIVES LIST ---
-electives = [
-    "Theory of Constraints",
-    "Essentials of Internet and Web Technologies",
-    "Behavioral Finance",
-    "Pricing",
-    "Conflict and Negotiation",
-    "Integrated Marketing Communication",
-    "Indian Kaleidoscope-Culture and Communication",
-    "Marketing of Financial Services",
-    "International Marketing",
-    "Financial Modeling",
-    "Machine learning",
-    "Mergers and Acquisitions",
-    "Entrepreneurship",
-    "Venture and Private Equity Funding",
-    "Sustainable Finance and Responsible Investment"
-]
+# ------------------- Ensure Required Columns Exist -------------------
+required_columns = ["Elective 1", "Elective 2", "PRN"]
+for col in required_columns:
+    if col not in df.columns:
+        df[col] = ""  # Add missing column if not present
 
-# --- ELECTIVE COUNT FROM SHEET ---
-count_list = df[["Elective 1", "Elective 2"]].stack().dropna().tolist()
-counts = Counter(count_list)
+# ------------------- Count Current Elective Selections -------------------
+counts_from_submissions = df[["Elective 1", "Elective 2"]].stack().value_counts().to_dict()
 
-# --- DISPLAY ELECTIVES WITH SEATS LEFT ---
+# ------------------- Prepare Display Electives -------------------
 elective_display = []
 elective_map = {}
 
-for e in electives:
-    remaining = MAX_CAPACITY - counts.get(e, 0)
+for elective, total in elective_remaining_seats.items():
+    used = counts_from_submissions.get(elective, 0)
+    remaining = total - used
     if remaining > 0:
-        label = f"{e} (Seats Left: {remaining}/60)"
+        label = f"{elective} (Seats Left: {remaining}/{MAX_CAPACITY})"
         elective_display.append(label)
-        elective_map[label] = e
+        elective_map[label] = elective
 
-# --- UI FORM ---
-st.title("🎓 Elective Selection Form")
-st.write("Please choose **exactly 2 electives**. Each elective has a cap of **60 students**.")
-
-with st.form(key="elective_form"):
-    name = st.text_input("Enter your full name:")
-    prn = st.text_input("Enter your PRN number:")
-    email = st.text_input("Enter your Email ID:")
+# ------------------- Form UI -------------------
+with st.form("elective_form"):
+    name = st.text_input("Full Name *")
+    prn = st.text_input("PRN Number *")
+    email = st.text_input("Email ID *")
     selected_display = st.multiselect("Select exactly 2 electives:", options=elective_display)
-    submit = st.form_submit_button(label="Submit")
+    submit = st.form_submit_button("Submit")
 
-    # --- VALIDATION ---
+    # ------------------- Validations -------------------
     name_valid = re.fullmatch(r"[A-Za-z\s]+", name.strip())
     prn_valid = re.fullmatch(r"\d{9,10}", prn.strip())
     email_valid = re.fullmatch(r"[^@ \t\r\n]+@[^@ \t\r\n]+\.[^@ \t\r\n]+", email.strip())
-    existing_prns = df["PRN"].astype(str).values
 
     if submit:
         if not name.strip() or not prn.strip() or not email.strip():
-            st.error("❌ Please fill in all the fields.")
+            st.error("❌ Please fill in all the required fields.")
         elif not name_valid:
             st.error("❌ Name should contain only alphabets and spaces.")
         elif not prn_valid:
             st.error("❌ PRN should be a 9 or 10-digit number.")
         elif not email_valid:
-            st.error("❌ Enter a valid email address.")
+            st.error("❌ Please enter a valid email address.")
         elif len(selected_display) != 2:
             st.error("❌ Please select exactly 2 electives.")
-        elif prn.strip() in existing_prns:
+        elif prn.strip() in df["PRN"].astype(str).values:
             st.warning("⚠️ This PRN has already submitted a response.")
         else:
-            st.success("✅ Your electives have been recorded successfully!")
-            st.info("ℹ️ However, this is a read-only version. Your submission has not been saved.")
-            st.markdown("📩 Please contact the admin to enable write access to the sheet.")
+            selected_actual = [elective_map[s] for s in selected_display]
+
+            # Final overbooking check
+            latest_counts = df[["Elective 1", "Elective 2"]].stack().value_counts().to_dict()
+            overbooked = False
+            for elective in selected_actual:
+                if latest_counts.get(elective, 0) >= elective_remaining_seats[elective]:
+                    st.error(f"❌ '{elective}' is now full. Please refresh and choose another elective.")
+                    overbooked = True
+                    break
+
+            if not overbooked:
+                sheet.append_row([
+                    name.strip(),
+                    prn.strip(),
+                    email.strip(),
+                    selected_actual[0],
+                    selected_actual[1]
+                ])
+                st.success("✅ Your response has been recorded successfully!")
